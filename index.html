@@ -43,87 +43,35 @@
   <div id="log">Initializing…</div>
 
   <p>
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.tsv" multiple disabled>
+    <input type="file" id="fileInput" accept=".xlsx,.csv,.tsv" disabled>
   </p>
   <div id="preview"></div>
 
-  <div id="config" hidden>
-    <h2>Column mapping</h2>
+  <div id="run" hidden>
+    <h2>Mask it</h2>
     <p class="todo">
-      Tick the columns to mask and name the entity each one belongs to
-      (for example <code>customer</code>). Columns ticked but left without
-      an entity name are skipped — they are listed in the log.
+      Tick the columns to hide, then press the button. Each column is
+      masked under its own name, so the same value gets the same token in
+      every column that carries that name — including columns with that
+      name on other sheets of the workbook.
     </p>
-    <button id="buildConfigBtn">Build config</button>
-    <pre id="configOutput"></pre>
-    <a id="configDownload" download="anon-config.json" hidden>Download config</a>
-  </div>
-
-  <div id="links" hidden>
-    <h2>Links across files</h2>
-    <p class="todo">
-      Looks for matches by entity name and by value overlap (95% threshold)
-      among the columns you ticked for masking. A confirmed link assigns
-      the same entity to both columns, so one value gets one token
-      everywhere.
-    </p>
-    <button id="findLinksBtn">Find links</button>
-    <div id="linksOutput"></div>
-  </div>
-
-  <div id="mapping" hidden>
-    <h2>Dictionary</h2>
     <div class="warning">
-      <code>mapping.KEEP-PRIVATE.json</code> is the key. Never share it and
-      never put it in the same archive as the masked files: anyone holding
-      the dictionary can restore the real data. Lose it and the next run
-      will produce different tokens.
+      You get two files. <code>masked.zip</code> is the one you send to
+      your analyst. <code>mapping.KEEP-PRIVATE.secretmap</code> is the key
+      — it maps tokens back to your real values, so anyone holding it can
+      undo the masking. Keep it. Never send it, and never put it in the
+      same archive as the masked file. Lose it and the next run will
+      produce different tokens.
     </div>
-    <p class="todo">
-      Have a dictionary from a previous run? Load it here — new values are
-      added to it as new tokens and existing ones stay unchanged.
-      <input type="file" id="existingMappingInput" accept=".json">
-    </p>
-    <button id="buildMappingBtn">Build dictionary</button>
-    <pre id="mappingOutput"></pre>
-    <a id="mappingDownload" download="mapping.KEEP-PRIVATE.json" hidden>Download dictionary (mapping.KEEP-PRIVATE.json)</a>
-  </div>
-
-  <div id="masking" hidden>
-    <h2>Masking</h2>
-    <p class="todo">
-      Requires a config and a dictionary from the steps above. Files are
-      re-read from disk and processed one at a time. Once every file is
-      done and the report is built (button below), a single download
-      appears — <code>masked.zip</code>, containing the files and
-      <code>report.html</code>.
-    </p>
-    <button id="maskBtn">Mask files</button>
+    <button id="maskBtn">Mask the file</button>
     <progress id="maskProgress" class="mask-progress" value="0" max="1" hidden></progress>
     <div id="maskOutput"></div>
-    <button id="buildReportBtn">Build report</button>
-    <div id="reportOutput"></div>
     <p>
-      <a id="maskedZipDownload" download="masked.zip" hidden>Download masked.zip</a>
-    </p>
-  </div>
-
-  <div id="restore">
-    <h2>Restore</h2>
-    <p class="todo">
-      A standalone flow — it needs nothing from the steps above. Load your
-      dictionary (<code>mapping.KEEP-PRIVATE.json</code>) and the file(s)
-      whose real values you want back. It searches for tokens rather than
-      columns, so it works on <code>.xlsx</code> as well as on text formats
-      (<code>.csv</code>, <code>.md</code>, <code>.txt</code>,
-      <code>.json</code>, <code>.sql</code>).
+      <a id="maskedZipDownload" download="masked.zip" hidden>Download masked.zip — send this one</a>
     </p>
     <p>
-      Dictionary: <input type="file" id="restoreMappingInput" accept=".json" disabled><br>
-      Files: <input type="file" id="restoreFilesInput" accept=".xlsx,.xls,.csv,.tsv,.md,.txt,.json,.sql" multiple disabled>
+      <a id="mappingDownload" download="mapping.KEEP-PRIVATE.secretmap" hidden>Download the key — keep this one</a>
     </p>
-    <button id="restoreBtn" disabled>Restore</button>
-    <div id="restoreOutput"></div>
   </div>
 
   <!-- Vendored (not a CDN, design.md §9.1), UMD build -- a classic script,

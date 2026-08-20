@@ -11,6 +11,30 @@ def engine_version():
     return openpyxl.__version__
 
 
+SUPPORTED_INPUT_FORMATS = (".xlsx", ".csv", ".tsv")
+
+
+def unsupported_format_message(path):
+    """What the client sees when the engine cannot read the file they picked.
+
+    `.xls` gets its own wording because it is the one rejection people find
+    surprising: it *is* Excel, just the pre-2007 binary format, and openpyxl
+    reads only the modern zip-based `.xlsx`. Writing `.xls` is not possible
+    either, and masking has to return the same format it was given, so
+    supporting it is a separate project rather than a fix
+    (`v1-beta.md`, "Форматы").
+    """
+    if path.lower().endswith(".xls"):
+        return (
+            "the old .xls format is not supported -- open the file in Excel "
+            "or LibreOffice, save it as .xlsx and try again"
+        )
+    return (
+        f"unsupported file format: {path} "
+        f"(supported: {', '.join(SUPPORTED_INPUT_FORMATS)})"
+    )
+
+
 def _json_safe_value(value):
     """Coerce a cell value to a type that survives the Pyodide -> JS
     boundary (structured clone via postMessage). Without this a
@@ -51,11 +75,11 @@ def preview_file(path, file_pattern=None, max_rows=5):
     for the same file across stages. `None` keeps backward compatibility:
     the pseudo sheet name is taken from `path`, as before.
     """
-    if path.lower().endswith((".xlsx", ".xls")):
+    if path.lower().endswith(".xlsx"):
         return _preview_xlsx(path, max_rows)
     if path.lower().endswith((".csv", ".tsv")):
         return _preview_csv(path, file_pattern, max_rows)
-    raise ValueError(f"unsupported file format: {path}")
+    raise ValueError(unsupported_format_message(path))
 
 
 def _preview_xlsx(path, max_rows):
@@ -104,11 +128,11 @@ def extract_unique_values(path, sheet_columns, file_pattern=None, max_unique=100
     stable value across worker.js stages; `None` keeps backward
     compatibility (name taken from `path`, as before).
     """
-    if path.lower().endswith((".xlsx", ".xls")):
+    if path.lower().endswith(".xlsx"):
         return _extract_unique_xlsx(path, sheet_columns, max_unique)
     if path.lower().endswith((".csv", ".tsv")):
         return _extract_unique_csv(path, sheet_columns, file_pattern, max_unique)
-    raise ValueError(f"unsupported file format: {path}")
+    raise ValueError(unsupported_format_message(path))
 
 
 def _extract_unique_xlsx(path, sheet_columns, max_unique):

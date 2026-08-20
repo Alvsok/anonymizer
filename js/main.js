@@ -3,10 +3,7 @@ const statusEl = document.getElementById("status");
 const loadProgressEl = document.getElementById("loadProgress");
 const fileInput = document.getElementById("fileInput");
 const previewEl = document.getElementById("preview");
-const configEl = document.getElementById("config");
-const linksEl = document.getElementById("links");
-const mappingEl = document.getElementById("mapping");
-const maskingEl = document.getElementById("masking");
+const runEl = document.getElementById("run");
 
 function log(msg) {
   logEl.textContent += msg + "\n";
@@ -80,9 +77,8 @@ async function verifyOfflineCache(vendorAssets) {
 const loadedFiles = new Map(); // fileName -> File
 
 // columnState: key "file::sheet::column" -> { fileName, sheetName,
-// columnName, touch, entity, inputEl }. inputEl points at the entity DOM
-// field so a confirmed link (§5) can sync the value on screen, not only
-// in state.
+// columnName, touch }. No entity field: in version 1 beta the entity IS
+// the column name, so a tick is the only thing the client decides.
 const columnState = new Map();
 
 function columnKey(fileName, sheetName, columnName) {
@@ -99,26 +95,15 @@ function renderGuesses(fileName, sheetName, guesses) {
     checkbox.type = "checkbox";
     checkbox.checked = g.touch;
 
-    const entityInput = document.createElement("input");
-    entityInput.type = "text";
-    entityInput.placeholder = "entity";
-    entityInput.value = g.entity || "";
-    entityInput.size = 12;
-
     columnState.set(key, {
       fileName,
       sheetName,
       columnName: g.column,
       touch: g.touch,
-      entity: g.entity || "",
-      inputEl: entityInput,
     });
 
     checkbox.addEventListener("change", () => {
       columnState.get(key).touch = checkbox.checked;
-    });
-    entityInput.addEventListener("input", () => {
-      columnState.get(key).entity = entityInput.value.trim();
     });
 
     const li = document.createElement("li");
@@ -126,7 +111,6 @@ function renderGuesses(fileName, sheetName, guesses) {
     label.textContent = ` ${g.column} — ${g.reason} `;
     li.appendChild(checkbox);
     li.appendChild(label);
-    li.appendChild(entityInput);
     list.appendChild(li);
   });
   return list;
@@ -167,29 +151,39 @@ function renderPreview(name, sheets) {
     previewEl.appendChild(renderGuesses(name, sheetName, table.guesses));
   });
 
-  configEl.hidden = false;
-  linksEl.hidden = loadedFiles.size < 2; // links only make sense from two files up
-  mappingEl.hidden = false;
+  runEl.hidden = false;
 }
 
-function derivePrefix(entityName, index) {
+// The prefix is derived from the column name, so two different names can
+// produce the same one: `Sales` and `Sale Price` both give `SALE`. Nobody
+// can fix that by hand any more -- there is no entity field and no config
+// step on screen -- so a prefix already taken gets a number: SALE, SALE2.
+// Without this two different values would end up sharing a token string
+// and the key would be ambiguous (v1-beta.md, acceptance criterion 4).
+function derivePrefix(entityName, index, taken) {
   const letters = (entityName || "").toUpperCase().replace(/[^A-Z]/g, "");
-  if (letters.length >= 2) return letters.slice(0, 4);
-  return "ENT" + index;
+  const base = letters.length >= 2 ? letters.slice(0, 4) : "ENT" + index;
+  let prefix = base;
+  let n = 2;
+  while (taken.has(prefix)) prefix = base + n++;
+  taken.add(prefix);
+  return prefix;
 }
 
+// The entity -- the token namespace a value belongs to -- is the column
+// name itself (v1-beta.md). One value gets one token within one entity,
+// so columns that carry the same name, in one file or across several,
+// land in the same namespace and therefore share tokens. That is the
+// whole linking rule of version 1: name the column the same way in every
+// file and the link holds; name it differently and it does not. Nothing
+// is guessed, and there is nothing for the client to fill in.
 function buildConfigPayload() {
   const byEntity = new Map();
-  const skipped = [];
 
   for (const col of columnState.values()) {
     if (!col.touch) continue;
-    if (!col.entity) {
-      skipped.push(`${col.fileName} / ${col.sheetName} / ${col.columnName}`);
-      continue;
-    }
-    if (!byEntity.has(col.entity)) byEntity.set(col.entity, []);
-    byEntity.get(col.entity).push({
+    if (!byEntity.has(col.columnName)) byEntity.set(col.columnName, []);
+    byEntity.get(col.columnName).push({
       file_pattern: col.fileName,
       sheet_name: col.sheetName,
       column_name: col.columnName,
@@ -197,12 +191,14 @@ function buildConfigPayload() {
   }
 
   const entities = {};
+  const takenPrefixes = new Set();
   let i = 0;
   for (const [entityName, columns] of byEntity) {
-    entities[entityName] = { prefix: derivePrefix(entityName, i++), width: 6, columns };
+    const prefix = derivePrefix(entityName, i++, takenPrefixes);
+    entities[entityName] = { prefix, width: 6, columns };
   }
 
-  return { config: { version: 1, entities }, skipped };
+  return { config: { version: 1, entities } };
 }
 
 let nextId = 0;
@@ -216,9 +212,6 @@ worker.onmessage = (event) => {
       break;
     case "ready":
       fileInput.disabled = false;
-      document.getElementById("restoreMappingInput").disabled = false;
-      document.getElementById("restoreFilesInput").disabled = false;
-      document.getElementById("restoreBtn").disabled = false;
       verifyOfflineCache(msg.vendorAssets || []);
       break;
     case "preview-result":
@@ -226,22 +219,13 @@ worker.onmessage = (event) => {
       renderPreview(msg.name, msg.sheets);
       break;
     case "config-result":
-      renderConfigResult(msg.json, msg.error);
-      break;
-    case "links-result":
-      renderLinksResult(msg.links, msg.error);
+      onConfigValidated(msg.json, msg.error);
       break;
     case "mapping-result":
-      renderMappingResult(msg.json, msg.error);
+      onKeyBuilt(msg.json, msg.error);
       break;
     case "mask-result":
-      renderMaskResult(msg.name, msg.buffer, msg.summary, msg.error);
-      break;
-    case "restore-result":
-      renderRestoreResult(msg.name, msg.buffer, msg.summary, msg.error);
-      break;
-    case "report-result":
-      renderReportResult(msg.html, msg.error);
+      onFileMasked(msg.name, msg.buffer, msg.summary, msg.error);
       break;
     case "error":
       log("Error: " + msg.message);
@@ -253,370 +237,164 @@ worker.onmessage = (event) => {
   }
 };
 
+// One file per run (v1-beta.md, step 2). Picking another file starts from
+// scratch rather than adding to what is on screen: the ticks, the preview
+// and any finished downloads belong to the file they were made for.
 fileInput.addEventListener("change", async () => {
-  for (const file of fileInput.files) {
-    loadedFiles.set(file.name, file);
-    const buffer = await file.arrayBuffer();
-    const id = String(nextId++);
-    log(`Sending "${file.name}" to the worker for preview…`);
-    worker.postMessage({ type: "preview", id, name: file.name, buffer }, [buffer]);
-  }
+  const file = fileInput.files[0];
+  if (!file) return;
+  loadedFiles.clear();
+  columnState.clear();
+  previewEl.innerHTML = "";
+  runEl.hidden = true;
+  resetRunOutput();
+  loadedFiles.set(file.name, file);
+  const buffer = await file.arrayBuffer();
+  const id = String(nextId++);
+  log(`Reading "${file.name}"…`);
+  worker.postMessage({ type: "preview", id, name: file.name, buffer }, [buffer]);
   fileInput.value = "";
 });
 
-const configOutputEl = document.getElementById("configOutput");
-const configDownloadEl = document.getElementById("configDownload");
-
-function renderConfigResult(json, error) {
-  if (error) {
-    configOutputEl.textContent = "Validation error: " + error;
-    configDownloadEl.hidden = true;
-    return;
-  }
-  configOutputEl.textContent = json;
-  const blob = new Blob([json], { type: "application/json" });
-  configDownloadEl.href = URL.createObjectURL(blob);
-  configDownloadEl.hidden = false;
-}
-
-document.getElementById("buildConfigBtn").addEventListener("click", () => {
-  const { config, skipped } = buildConfigPayload();
-  if (skipped.length) {
-    log(
-      "Left out of the config (ticked for masking, but no entity given): " +
-        skipped.join(", ")
-    );
-  }
-  const id = String(nextId++);
-  worker.postMessage({ type: "build-config", id, config });
-});
-
-// §5 -- links between columns/files
-const linksOutputEl = document.getElementById("linksOutput");
-
-function columnsBySheetForFile(fileName) {
-  const bySheet = {};
-  const entities = {};
-  for (const col of columnState.values()) {
-    if (col.fileName !== fileName || !col.touch) continue;
-    (bySheet[col.sheetName] ??= []).push(col.columnName);
-    (entities[col.sheetName] ??= {})[col.columnName] = col.entity || null;
-  }
-  return { sheetColumns: bySheet, entities };
-}
-
-document.getElementById("findLinksBtn").addEventListener("click", async () => {
-  const files = [];
-  const transfers = [];
-  for (const [fileName, file] of loadedFiles) {
-    const { sheetColumns, entities } = columnsBySheetForFile(fileName);
-    if (Object.keys(sheetColumns).length === 0) continue;
-    const buffer = await file.arrayBuffer();
-    files.push({ name: fileName, buffer, sheetColumns, entities });
-    transfers.push(buffer);
-  }
-  if (files.length < 2) {
-    log("Find links: needs at least two files with columns ticked for masking.");
-    return;
-  }
-  log(`Looking for links across ${files.length} files (streaming projection, §9.2)…`);
-  const id = String(nextId++);
-  worker.postMessage({ type: "find-links", id, files }, transfers);
-});
-
-function renderLinksResult(links, error) {
-  linksOutputEl.innerHTML = "";
-  if (error) {
-    linksOutputEl.textContent = "Error: " + error;
-    return;
-  }
-  if (!links.length) {
-    linksOutputEl.textContent = "No links found.";
-    return;
-  }
-  const list = document.createElement("ul");
-  links.forEach((link) => {
-    const li = document.createElement("li");
-    const desc = document.createElement("span");
-    desc.textContent = `${link.a.file}/${link.a.sheet}/${link.a.column} ↔ ${link.b.file}/${link.b.sheet}/${link.b.column} — ${link.reason}`;
-
-    const confirmBtn = document.createElement("button");
-    confirmBtn.textContent = "Confirm (same entity)";
-    confirmBtn.addEventListener("click", () => {
-      confirmLink(link);
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = "Confirmed";
-    });
-
-    li.appendChild(desc);
-    li.appendChild(confirmBtn);
-    list.appendChild(li);
-  });
-  linksOutputEl.appendChild(list);
-}
-
-function confirmLink(link) {
-  const keyA = columnKey(link.a.file, link.a.sheet, link.a.column);
-  const keyB = columnKey(link.b.file, link.b.sheet, link.b.column);
-  const a = columnState.get(keyA);
-  const b = columnState.get(keyB);
-  if (!a || !b) return;
-  const shared = a.entity || b.entity || "linked_entity";
-  a.entity = shared;
-  b.entity = shared;
-  a.inputEl.value = shared;
-  b.inputEl.value = shared;
-  log(`Link confirmed: both columns assigned to entity "${shared}".`);
-}
-
-// §6 -- dictionary and tokens
-let existingMappingJson = null;
-
-document.getElementById("existingMappingInput").addEventListener("change", async () => {
-  const file = document.getElementById("existingMappingInput").files[0];
-  if (!file) {
-    existingMappingJson = null;
-    return;
-  }
-  existingMappingJson = await file.text();
-  log(`Existing dictionary loaded, new values will be appended to it: ${file.name}`);
-});
-
-const mappingOutputEl = document.getElementById("mappingOutput");
-const mappingDownloadEl = document.getElementById("mappingDownload");
-
-function renderMappingResult(json, error) {
-  if (error) {
-    mappingOutputEl.textContent = "Error: " + error;
-    mappingDownloadEl.hidden = true;
-    return;
-  }
-  mappingOutputEl.textContent = json;
-  const blob = new Blob([json], { type: "application/json" });
-  mappingDownloadEl.href = URL.createObjectURL(blob);
-  mappingDownloadEl.hidden = false;
-  maskingEl.hidden = false;
-}
-
-document.getElementById("buildMappingBtn").addEventListener("click", async () => {
-  const { config } = buildConfigPayload();
-
-  // Which files/sheets/columns are actually needed comes from the
-  // confirmed config, not from columnState directly (§4 already filtered
-  // out the rest).
-  const filesNeeded = new Map(); // fileName -> { sheetName: [columnName, ...] }
-  for (const entity of Object.values(config.entities)) {
-    for (const c of entity.columns) {
-      if (!loadedFiles.has(c.file_pattern)) continue;
-      const bySheet = filesNeeded.get(c.file_pattern) || {};
-      (bySheet[c.sheet_name] ??= []).push(c.column_name);
-      filesNeeded.set(c.file_pattern, bySheet);
-    }
-  }
-
-  if (filesNeeded.size === 0) {
-    log("Build dictionary: no columns have an entity assigned — use \"Build config\" first.");
-    return;
-  }
-
-  const files = [];
-  const transfers = [];
-  for (const [fileName, sheetColumns] of filesNeeded) {
-    const buffer = await loadedFiles.get(fileName).arrayBuffer();
-    files.push({ name: fileName, buffer, sheetColumns });
-    transfers.push(buffer);
-  }
-
-  log(`Building the dictionary from ${files.length} file(s)…`);
-  const id = String(nextId++);
-  worker.postMessage({ type: "build-mapping", id, config, files, existingMappingJson }, transfers);
-});
-
-// §7 -- masking engine
+// One button, one run (v1-beta.md, step 5). The client ticks columns and
+// presses it; config, key and masking happen behind it in that order. The
+// intermediate steps used to be three buttons with their JSON printed on
+// screen -- nothing there was a decision, so nothing there was worth
+// showing.
 const maskOutputEl = document.getElementById("maskOutput");
 const maskProgressEl = document.getElementById("maskProgress");
 const maskedZipDownloadEl = document.getElementById("maskedZipDownload");
+const mappingDownloadEl = document.getElementById("mappingDownload");
 
-// Output packaging (design.md §6): masked.zip is assembled only once both
-// halves are ready -- every masked file and report.html. The order in
-// which the user clicks "Mask files" / "Build report" does not matter,
-// tryBuildMaskedZip is checked after each of the two events.
-let maskedBuffers = null; // Map(name -> Uint8Array), null until a run starts
-let maskExpectedCount = 0;
-let reportHtmlForZip = null;
+// The run in flight: { config, fileName, ... }. null when idle -- every
+// stage checks it, so a stale message from an abandoned run is ignored
+// instead of writing over the screen.
+let run = null;
 
-function maskOutputList() {
-  let list = maskOutputEl.querySelector("ul");
-  if (!list) {
-    list = document.createElement("ul");
-    maskOutputEl.appendChild(list);
-  }
-  return list;
+function resetRunOutput() {
+  maskOutputEl.innerHTML = "";
+  maskedZipDownloadEl.hidden = true;
+  mappingDownloadEl.hidden = true;
+  maskProgressEl.hidden = true;
+  run = null;
 }
 
-async function tryBuildMaskedZip() {
-  if (!maskedBuffers || maskedBuffers.size < maskExpectedCount) return;
-  if (!reportHtmlForZip) return;
-  log("All files masked and the report is ready — building masked.zip…");
-  const zip = new JSZip();
-  for (const [name, bytes] of maskedBuffers) {
-    zip.file(name, bytes);
+function failRun(message) {
+  log("Error: " + message);
+  maskProgressEl.hidden = true;
+  run = null;
+}
+
+document.getElementById("maskBtn").addEventListener("click", () => {
+  const fileName = [...loadedFiles.keys()][0];
+  if (!fileName) {
+    log("Load a file first.");
+    return;
   }
-  zip.file("report.html", reportHtmlForZip);
+  const { config } = buildConfigPayload();
+  if (!Object.keys(config.entities).length) {
+    log("Nothing is ticked — tick at least one column to hide.");
+    return;
+  }
+  resetRunOutput();
+  run = { config, fileName };
+  maskProgressEl.max = 2;
+  maskProgressEl.value = 0;
+  maskProgressEl.hidden = false;
+  log("Checking the column selection…");
+  worker.postMessage({ type: "build-config", id: String(nextId++), config });
+});
+
+// Stage 1. The config goes through py/config.py, which is the one place
+// that rejects a broken selection (duplicate prefixes above all). The
+// validated version is what the later stages use -- not the raw payload.
+async function onConfigValidated(json, error) {
+  if (!run) return;
+  if (error) {
+    failRun("the column selection was rejected: " + error);
+    return;
+  }
+  run.config = JSON.parse(json);
+
+  const sheetColumns = {};
+  for (const entity of Object.values(run.config.entities)) {
+    for (const c of entity.columns) {
+      (sheetColumns[c.sheet_name] ??= []).push(c.column_name);
+    }
+  }
+
+  const buffer = await loadedFiles.get(run.fileName).arrayBuffer();
+  log("Collecting the values and building the key…");
+  worker.postMessage(
+    {
+      type: "build-mapping",
+      id: String(nextId++),
+      config: run.config,
+      files: [{ name: run.fileName, buffer, sheetColumns }],
+    },
+    [buffer]
+  );
+}
+
+// Stage 2. The key is offered for download the moment it exists, before
+// masking has even run: it is the file the client must not lose, and it is
+// the one thing here that cannot be rebuilt (v1-beta.md, step 8).
+async function onKeyBuilt(json, error) {
+  if (!run) return;
+  if (error) {
+    failRun("the key could not be built: " + error);
+    return;
+  }
+  mappingDownloadEl.href = URL.createObjectURL(
+    new Blob([json], { type: "application/json" })
+  );
+  mappingDownloadEl.hidden = false;
+  maskProgressEl.value = 1;
+
+  const buffer = await loadedFiles.get(run.fileName).arrayBuffer();
+  log(`Masking "${run.fileName}"…`);
+  worker.postMessage(
+    {
+      type: "mask",
+      id: String(nextId++),
+      name: run.fileName,
+      buffer,
+      config: run.config,
+      mappingJson: json,
+    },
+    [buffer]
+  );
+}
+
+// Stage 3. masked.zip holds the masked file and nothing else -- no report,
+// no config, and above all not the key (v1-beta.md, step 8).
+async function onFileMasked(name, buffer, summary, error) {
+  if (!run) return;
+  if (error) {
+    failRun(`${name}: ${error}`);
+    return;
+  }
+  maskProgressEl.value = 2;
+
+  const li = document.createElement("li");
+  li.textContent = `${name}: cells masked — ${summary.cells_masked}`;
+  const list = document.createElement("ul");
+  list.appendChild(li);
+  maskOutputEl.appendChild(list);
+
+  const zip = new JSZip();
+  zip.file(name, new Uint8Array(buffer));
   const blob = await zip.generateAsync({ type: "blob" });
   maskedZipDownloadEl.href = URL.createObjectURL(blob);
   maskedZipDownloadEl.hidden = false;
-  log("masked.zip is ready.");
+  log("Done. Send masked.zip to your analyst, keep the key.");
+  run = null;
 }
 
-function renderMaskResult(name, buffer, summary, error) {
-  const li = document.createElement("li");
-  if (error) {
-    li.textContent = `${name}: error — ${error}`;
-  } else {
-    maskedBuffers.set(name, new Uint8Array(buffer));
-    li.textContent = `${name}: cells masked — ${summary.cells_masked}`;
-  }
-  maskOutputList().appendChild(li);
-  maskProgressEl.value = maskedBuffers.size;
-  tryBuildMaskedZip();
-}
-
-document.getElementById("maskBtn").addEventListener("click", async () => {
-  const { config } = buildConfigPayload();
-  const mappingJson = mappingOutputEl.textContent;
-  if (!mappingJson || !mappingJson.startsWith("{")) {
-    log("Mask files: build the dictionary first (step above).");
-    return;
-  }
-
-  const fileNames = new Set();
-  for (const entity of Object.values(config.entities)) {
-    for (const c of entity.columns) {
-      if (loadedFiles.has(c.file_pattern)) fileNames.add(c.file_pattern);
-    }
-  }
-  if (!fileNames.size) {
-    log("Mask files: no columns have an entity assigned — use \"Build config\" first.");
-    return;
-  }
-
-  maskOutputEl.innerHTML = "";
-  maskedZipDownloadEl.hidden = true;
-  maskedBuffers = new Map();
-  maskExpectedCount = fileNames.size;
-  reportHtmlForZip = null; // new run -- do not reuse the previous report
-  maskProgressEl.max = maskExpectedCount;
-  maskProgressEl.value = 0;
-  maskProgressEl.hidden = false;
-  for (const name of fileNames) {
-    const buffer = await loadedFiles.get(name).arrayBuffer();
-    const id = String(nextId++);
-    log(`Masking "${name}"…`);
-    worker.postMessage({ type: "mask", id, name, buffer, config, mappingJson }, [buffer]);
-  }
-});
-
-// §8 -- restore, a standalone flow
-let restoreMappingJson = null;
-
-document.getElementById("restoreMappingInput").addEventListener("change", async () => {
-  const file = document.getElementById("restoreMappingInput").files[0];
-  restoreMappingJson = file ? await file.text() : null;
-});
-
-function restoreOutputList() {
-  let list = restoreOutputEl.querySelector("ul");
-  if (!list) {
-    list = document.createElement("ul");
-    restoreOutputEl.appendChild(list);
-  }
-  return list;
-}
-
-const restoreOutputEl = document.getElementById("restoreOutput");
-
-function renderRestoreResult(name, buffer, summary, error) {
-  const li = document.createElement("li");
-  if (error) {
-    li.textContent = `${name}: error — ${error}`;
-  } else {
-    const blob = new Blob([buffer]);
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "restored_" + name;
-    const count = summary.cells_restored ?? summary.tokens_replaced;
-    a.textContent = `Download restored_${name} (restored: ${count})`;
-    li.appendChild(a);
-  }
-  restoreOutputList().appendChild(li);
-}
-
-document.getElementById("restoreBtn").addEventListener("click", async () => {
-  if (!restoreMappingJson) {
-    log("Restore: load your dictionary first.");
-    return;
-  }
-  const files = document.getElementById("restoreFilesInput").files;
-  if (!files.length) {
-    log("Restore: select at least one file.");
-    return;
-  }
-  restoreOutputEl.innerHTML = "";
-  for (const file of files) {
-    const buffer = await file.arrayBuffer();
-    const id = String(nextId++);
-    log(`Restoring "${file.name}"…`);
-    worker.postMessage(
-      { type: "restore", id, name: file.name, buffer, mappingJson: restoreMappingJson },
-      [buffer]
-    );
-  }
-});
-
-// §9 -- report
-const reportOutputEl = document.getElementById("reportOutput");
-
-function renderReportResult(htmlText, error) {
-  reportOutputEl.innerHTML = "";
-  if (error) {
-    reportOutputEl.textContent = "Error: " + error;
-    return;
-  }
-  const iframe = document.createElement("iframe");
-  iframe.srcdoc = htmlText;
-  reportOutputEl.appendChild(iframe);
-
-  // report.html is not offered as a separate download (design.md §6: only
-  // masked.zip and mapping.KEEP-PRIVATE.json) -- it goes inside masked.zip
-  // as soon as both it and every masked file are ready.
-  reportHtmlForZip = htmlText;
-  tryBuildMaskedZip();
-}
-
-document.getElementById("buildReportBtn").addEventListener("click", async () => {
-  const { config } = buildConfigPayload();
-  const mappingJson = mappingOutputEl.textContent;
-  if (!mappingJson || !mappingJson.startsWith("{")) {
-    log("Build report: build the dictionary first.");
-    return;
-  }
-
-  const files = [];
-  for (const [name, file] of loadedFiles) {
-    const buffer = await file.arrayBuffer();
-    files.push({ name, buffer });
-  }
-  if (!files.length) {
-    log("Build report: no files loaded.");
-    return;
-  }
-
-  log("Building the report…");
-  const id = String(nextId++);
-  const transfers = files.map((f) => f.buffer);
-  worker.postMessage({ type: "build-report", id, config, mappingJson, files }, transfers);
-});
+// Restore is not on this page. It moves to a page of its own, and what it
+// takes from the analyst -- a finished file or the formulas behind it --
+// is still open (owner's decision 20.08; improvements.md §7). py/restorer.py
+// and its tests stay in the repository, unreachable from this UI.
 
 registerServiceWorker();
 worker.postMessage({ type: "init" });

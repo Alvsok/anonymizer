@@ -42,10 +42,6 @@ self.WebSocket = function () {
 //   { type: "preview", id, name, buffer }   -- buffer is a transferable ArrayBuffer
 //   { type: "build-config", id, config }    -- config is a plain JS object
 //     shaped like AnonConfig (py/config.py), built from the §4 UI state
-//   { type: "find-links", id, files }       -- files[i] = { name, buffer,
-//     sheetColumns, entities } -- buffer transferable, re-read from the
-//     original File (design.md §9.2 item 4 -- NOT the same buffer as the
-//     preview used, that one was already neutered by the transfer)
 //   { type: "build-mapping", id, config, files, existingMappingJson? }
 //     files[i] = { name, buffer, sheetColumns } -- buffer transferable,
 //     re-read from disk (design.md §9.2 item 4); existingMappingJson --
@@ -76,8 +72,6 @@ self.WebSocket = function () {
 //   { type: "config-result", id, json?, error? } -- json: the validated
 //     AnonConfig (py/config.py:config_to_json); error: ConfigError.message
 //     when validation fails (duplicate prefixes, for example)
-//   { type: "links-result", id, links?, error? } -- links[i] = { a: {file,
-//     sheet, column}, b: {...}, reason } (py/links.py:propose_links)
 //   { type: "mapping-result", id, json?, error? } -- json: mapping.json
 //     (py/mapping.py:mapping_to_json); never placed inside masked.zip
 //     (design.md §6) -- separate download, separate warning
@@ -98,7 +92,6 @@ const PY_MODULES = [
   "config.py",
   "heuristics.py",
   "engine.py",
-  "links.py",
   "mapping.py",
   "masker.py",
   "restorer.py",
@@ -140,7 +133,7 @@ async function init() {
       pyodide.FS.writeFile("/app/" + name, src);
     }
     pyodide.runPython("import sys\nsys.path.insert(0, '/app')");
-    await pyodide.runPythonAsync("import config, engine, links, mapping, masker, restorer, report");
+    await pyodide.runPythonAsync("import config, engine, mapping, masker, restorer, report");
 
     const version = pyodide.runPython("engine.engine_version()");
     status(`Engine ready: openpyxl ${version}.`);
@@ -184,49 +177,6 @@ function handleBuildConfig(msg) {
     post({ type: "config-result", id: msg.id, json: validated });
   } catch (err) {
     post({ type: "config-result", id: msg.id, error: lastTracebackLine(err.message) });
-  }
-}
-
-function handleFindLinks(msg) {
-  // msg.files[i] = { name, buffer, sheetColumns, entities }
-  // sheetColumns: { sheetName: [columnName, ...] } -- only the columns
-  // ticked for masking (design.md §9.2: not the whole directory/file).
-  // entities: { sheetName: { columnName: entityName } } -- feeds the
-  // "same entity" signal in links.propose_links.
-  try {
-    const allColumns = [];
-    for (const f of msg.files) {
-      const path = "/tmp/link-" + msg.id + "-" + f.name;
-      pyodide.FS.writeFile(path, new Uint8Array(f.buffer));
-      pyodide.globals.set("_sheet_columns_json", JSON.stringify(f.sheetColumns));
-      pyodide.globals.set("_extract_path", path);
-      pyodide.globals.set("_extract_file_pattern", f.name);
-      const extractedJson = pyodide.runPython(
-        "import json\n" +
-          "json.dumps(engine.extract_unique_values(_extract_path, json.loads(_sheet_columns_json), file_pattern=_extract_file_pattern))"
-      );
-      pyodide.FS.unlink(path);
-      const extracted = JSON.parse(extractedJson);
-      for (const [sheetName, cols] of Object.entries(extracted)) {
-        for (const [colName, data] of Object.entries(cols)) {
-          allColumns.push({
-            file: f.name,
-            sheet: sheetName,
-            column: colName,
-            entity: f.entities?.[sheetName]?.[colName] ?? null,
-            values: data.values,
-          });
-        }
-      }
-    }
-
-    pyodide.globals.set("_link_columns_json", JSON.stringify(allColumns));
-    const linksJson = pyodide.runPython(
-      "import json\n" + "json.dumps(links.propose_links(json.loads(_link_columns_json)))"
-    );
-    post({ type: "links-result", id: msg.id, links: JSON.parse(linksJson) });
-  } catch (err) {
-    post({ type: "links-result", id: msg.id, error: lastTracebackLine(err.message) });
   }
 }
 
@@ -413,9 +363,6 @@ self.onmessage = (event) => {
       break;
     case "build-config":
       handleBuildConfig(msg);
-      break;
-    case "find-links":
-      handleFindLinks(msg);
       break;
     case "build-mapping":
       handleBuildMapping(msg);

@@ -81,3 +81,50 @@ def test_guess_column_takes_no_heading_argument():
     import inspect
 
     assert list(inspect.signature(guess_column).parameters) == ["sample_values"]
+
+
+# ---- CSV has no types: strings must still be recognized (v1-beta.md, step 3) ----
+
+
+def test_guess_shape_numeric_strings_from_csv():
+    # csv.reader hands back str for every cell; a column of amounts must not
+    # end up as text, or it would arrive pre-ticked for masking
+    assert guess_shape(["120000", "85000", "-450.75", "+12"]) == "numeric"
+
+
+def test_guess_shape_date_strings_from_csv():
+    assert guess_shape(["2026-01-15", "2026-02-02"]) == "date"
+    assert guess_shape(["15.01.2026", "02.02.2026"]) == "date"
+    assert guess_shape(["2026-01-15 10:30", "2026-02-02T09:00:00"]) == "date"
+
+
+def test_date_string_wins_over_phone_pattern():
+    # PHONE_RE matches any 7-20 chars of digits, spaces, brackets and dashes,
+    # which includes "2026-01-15". The date check has to run first.
+    assert guess_shape(["2026-01-15", "2026-01-18"]) == "date"
+
+
+def test_guess_column_numeric_strings_not_proposed_for_masking():
+    result = guess_column(["120000", "85000"])
+    assert result["touch"] is False
+    assert result["shape"] == "numeric"
+
+
+def test_guess_column_date_strings_not_proposed_for_masking():
+    result = guess_column(["2026-01-15", "2026-02-02"])
+    assert result["touch"] is False
+    assert result["shape"] == "date"
+
+
+def test_real_phone_numbers_still_recognized():
+    # The recognition above must not have made the phone branch unreachable:
+    # phones are PII and have to keep being proposed for masking.
+    result = guess_column(["+1 415 123-45-67", "(999) 111-22-33"])
+    assert result["shape"] == "phone"
+    assert result["touch"] is True
+
+
+def test_mixed_numbers_and_text_stays_text():
+    # One non-numeric value is enough to keep the whole column text -- the
+    # safe direction, the client unticks it if it is wrong
+    assert guess_shape(["120000", "n/a", "85000"]) == "text"

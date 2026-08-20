@@ -7,6 +7,7 @@ from pathlib import Path
 import openpyxl
 
 from config import columns_for_file
+from engine import unsupported_format_message
 
 
 def collect_column_stats(source_path, file_pattern, config, max_examples=3):
@@ -18,11 +19,11 @@ def collect_column_stats(source_path, file_pattern, config, max_examples=3):
     section comes first, with examples"). Returns
     `({sheet: {column: {...}}}, row_count)`.
     """
-    if source_path.lower().endswith((".xlsx", ".xls")):
+    if source_path.lower().endswith(".xlsx"):
         return _collect_xlsx(source_path, file_pattern, config, max_examples)
     if source_path.lower().endswith((".csv", ".tsv")):
         return _collect_csv(source_path, file_pattern, config, max_examples)
-    raise ValueError(f"unsupported file format: {source_path}")
+    raise ValueError(unsupported_format_message(source_path))
 
 
 def _new_column_stat(name, plan):

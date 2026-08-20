@@ -12,17 +12,56 @@ from datetime import date, datetime
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE = re.compile(r"^[\d\s()+\-]{7,20}$")
 
+# A CSV has no types: the csv module hands back str for every cell, so a
+# column of amounts or dates would fall through the isinstance checks below
+# and end up classified as text -- and then, being digits and dashes, a date
+# would even match PHONE_RE. Version 1 beta requires that columns of numbers
+# and dates are NOT proposed for masking (v1-beta.md, step 3), and that has
+# to hold for CSV as well as for xlsx, so string values are recognized here
+# before the type checks run.
+#
+# Recognition only, deliberately: we never need to know WHICH date
+# 01/02/2026 is, only that the column holds dates and must be left alone.
+# That is why the ambiguity between day-first and month-first does not
+# matter here and no parsing library is required.
+#
+# The patterns stay strict on purpose. A value we fail to recognize simply
+# stays text and gets proposed for masking, which the client unticks -- the
+# safe direction. A value we recognize too eagerly would be silently left
+# unmasked, which is the dangerous one.
+NUMERIC_STR_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
+DATE_STR_RE = re.compile(
+    r"""^(?:
+        \d{4}-\d{2}-\d{2}          # 2026-01-15
+      | \d{4}/\d{2}/\d{2}          # 2026/01/15
+      | \d{2}[./-]\d{2}[./-]\d{4}  # 15.01.2026, 15/01/2026, 15-01-2026
+    )
+    (?:[ T]\d{2}:\d{2}(?::\d{2})?)?$  # optional time part
+    """,
+    re.VERBOSE,
+)
+
 
 def _is_numeric(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    return isinstance(value, str) and bool(NUMERIC_STR_RE.match(value.strip()))
 
 
 def _is_date(value):
-    return isinstance(value, (date, datetime))
+    if isinstance(value, (date, datetime)):
+        return True
+    return isinstance(value, str) and bool(DATE_STR_RE.match(value.strip()))
 
 
 def guess_shape(sample_values):
-    """Classify a column's values as numeric/date/email/phone/text/empty."""
+    """Classify a column's values as numeric/date/email/phone/text/empty.
+
+    Order matters: date before numeric (a date is written with digits), and
+    both before phone, whose pattern is broad enough to swallow a date.
+    """
     non_empty = [v for v in sample_values if v is not None and v != ""]
     if not non_empty:
         return "empty"

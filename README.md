@@ -1,11 +1,16 @@
 # anonymizer
 
 Pseudonymization for Excel and CSV files. Runs entirely in your browser
-(Pyodide) — no backend, and your data is never uploaded anywhere. It
-replaces direct identifiers (names, emails, phone numbers, counterparty
-names, account numbers) with deterministic tokens such as `CUST-0007`,
-preserving referential integrity across files and sheets, and it can
-reverse the operation — `restore` — using your own dictionary.
+(Pyodide) — no backend, and your data is never uploaded anywhere.
+
+Load a file, tick the columns to hide, press the button. You get two
+files back: `masked.zip`, which you send to whoever is analyzing your
+data, and a key, which you keep. The masked columns hold deterministic
+tokens such as `CUST-000007` instead of names, and the same value gets
+the same token everywhere it appears.
+
+The key maps those tokens back to the real values. Undoing the masking
+with it is not part of this page — that moves to a page of its own.
 
 **This is pseudonymization, not anonymization.** Amounts, dates and the
 number of distinct values remain real, so a determined attacker could use
@@ -16,7 +21,7 @@ full anonymity.
 
 ## Why tokens instead of realistic fakes
 
-`Globex LLC` becomes `CUST-0007`, not `Initech Inc`. The reason: a
+`Globex LLC` becomes `CUST-000007`, not `Initech Inc`. The reason: a
 realistic fake is indistinguishable from a real value that slipped
 through — "John Smith" in a column could be either a substitution or a
 leak. Sequential numbering makes any surviving real value obvious
@@ -43,12 +48,17 @@ No CDNs: the Pyodide runtime and every `.whl` are vendored into this
 repository at pinned versions. There is simply nothing for a third-party
 domain to serve.
 
-## The dictionary is the key, and it stays with you
+## The key stays with you
 
-`mapping.KEEP-PRIVATE.json` maps real values to tokens. Anyone holding it
-can restore the original data, which is why it is never placed in the
-archive with the masked files and never sent anywhere. Lose it and the
-next run will produce different tokens.
+`mapping.KEEP-PRIVATE.secretmap` maps real values to tokens. Anyone holding it
+can restore the original data, which is why it never goes into the
+archive with the masked file and never leaves your machine. Its extension is
+deliberately not `.json`, so it does not open on a double click in Excel
+and is harder to attach to an email by accident. Lose it and the next run
+will produce different tokens.
+
+The tool produces exactly two files: `masked.zip` with your data, and the
+key.
 
 ## Running it locally
 
@@ -71,36 +81,46 @@ pip install -r tests/requirements.txt
 pytest tests/ -v
 ```
 
-`tests/test_acceptance.py` covers the acceptance criteria: the full
-`restore(mask(X)) == X` round trip, idempotency, one token per value
-across every file, and the absence of source values in the report. The
-whole run executes with network sockets blocked (`tests/conftest.py`) — if
-the engine ever tried to reach the network, the suite would fail.
+`tests/test_acceptance.py` covers the acceptance criteria: idempotency,
+one token per value, that amounts and dates come back untouched, and the
+full `restore(mask(X)) == X` round trip. That last one is checked here
+rather than in the browser on purpose — masking has to stay reversible
+even while the page that reverses it does not exist yet.
 
-The browser layer (worker, message API, CSP, offline behavior) is still
-verified by hand through the local server above; there are no automated
-tests at that level yet.
+The whole run executes with network sockets blocked
+(`tests/conftest.py`) — if the engine ever tried to reach the network,
+the suite would fail.
+
+Nothing in `js/` is covered: the browser layer (worker, message API, CSP,
+offline behavior) is verified by hand through the local server above, and
+the little logic that lives in `main.js` — which columns you ticked, which
+token prefix each one gets — has no automated test behind it. `py/` is
+where the guarantees are.
 
 ## Known limitations
 
-- **Excel formulas are read as values.** After `restore` you get static
+- **Excel formulas are read as values.** The masked copy holds static
   numbers, not a recalculating workbook. If the formulas matter, keep the
   original file.
+- **One file per run.** No batches, no folders.
 - Images, macros and embedded objects are not processed.
 - One value written two ways (`Globex LLC` / `globex llc`) gets two
   different tokens. Merging them silently would be a judgment about your
   data rather than anonymization.
 - **Column headings are not analyzed at all.** The tool proposes masking
-  based on the shape of the *values* (numbers and dates are left alone,
-  text is proposed), and you name the entity each column belongs to. A
-  heading can say anything, so guessing from it would only produce
-  confident-looking mistakes — and a pre-filled wrong guess is worse than
-  an empty field.
+  based on the shape of the *values* — numbers and dates are left alone,
+  text is proposed — and a heading can say anything, so guessing meaning
+  from it would only produce confident-looking mistakes.
+- **A column is masked under its own name.** Columns sharing a name share
+  a token space, which is how one value keeps one token across every sheet
+  of a workbook. Two columns whose names differ never line up, even when
+  they hold the same thing.
 
 ## Layout
 
-- `py/` — all the logic: config, file parsing, link detection, the token
-  dictionary, masking, restoring, reporting.
+- `py/` — all the logic: config, file parsing, the token dictionary and
+  masking. `restorer.py` and `report.py` are complete and tested but not
+  wired to this page; they belong to work that is not released yet.
 - `js/` — `main.js` (main thread, DOM) and `worker.js` (Pyodide,
   processing), talking over a message API.
 - `vendor/` — Pyodide, the `openpyxl`/`et_xmlfile`/`micropip` wheels, and

@@ -5,7 +5,7 @@ import openpyxl
 import csv as csv_module
 
 from config import columns_for_file
-from engine import anchor_trailing_none
+from engine import anchor_trailing_none, unsupported_format_message
 from mapping import format_token
 from mapping import token_for as mapping_token_for
 
@@ -100,11 +100,11 @@ def mask_file(source_path, output_path, file_pattern, config, mapping):
     `mapping`: a finished token dictionary (`mapping.py`). Returns a summary
     `{"cells_masked": int}`.
     """
-    if source_path.lower().endswith((".xlsx", ".xls")):
+    if source_path.lower().endswith(".xlsx"):
         return _mask_xlsx(source_path, output_path, file_pattern, config, mapping)
     if source_path.lower().endswith((".csv", ".tsv")):
         return _mask_csv(source_path, output_path, file_pattern, config, mapping)
-    raise ValueError(f"unsupported file format: {source_path}")
+    raise ValueError(unsupported_format_message(source_path))
 
 
 def _mask_xlsx(source_path, output_path, file_pattern, config, mapping):

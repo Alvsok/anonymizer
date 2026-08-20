@@ -37,7 +37,7 @@ def restore_file(source_path, output_path, mapping):
     (`.csv`, `.tsv`, `.md`, `.txt`, `.json`, `.sql`, design.md §2) is
     processed as one blob of text, because restore searches for tokens
     rather than structure."""
-    if source_path.lower().endswith((".xlsx", ".xls")):
+    if source_path.lower().endswith(".xlsx"):
         return _restore_xlsx(source_path, output_path, mapping)
     return _restore_text_file(source_path, output_path, mapping)
 
