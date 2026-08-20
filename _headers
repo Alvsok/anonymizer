@@ -1,0 +1,13 @@
+# A Worker does not inherit the document's CSP -- neither from a <meta> tag
+# nor from a header on the document itself (MDN, CSP Web Workers API). The
+# only way to give a worker a policy is a Content-Security-Policy response
+# header on the worker script's own response. All file processing happens
+# inside the worker, so without this rule the most sensitive part of the app
+# runs with no CSP at all.
+#
+# Deliberately a single rule: Cloudflare Pages merges the headers of every
+# matching rule and joins same-named headers with a comma, so a CSP on "/*"
+# plus this one would hand the worker two concatenated policies.
+
+/js/worker.js
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self';

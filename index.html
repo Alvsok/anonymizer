@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self';">
+<title>Anonymizer</title>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <h1>Anonymizer</h1>
+
+  <div class="promise">
+    Your files are processed entirely in this tab. Nothing is sent to a
+    server — this page makes no request to any third-party domain (check
+    it yourself in the Network tab of your browser's developer tools).
+    Once the engine has loaded you can disconnect from the internet and
+    confirm that processing still works.
+  </div>
+
+  <div class="disclaimer">
+    We never receive names, addresses, emails, phone numbers, counterparty
+    names or account numbers — we hold no lookup dictionary, we do not ask
+    for one and we do not accept one. But we do not claim your data is
+    anonymous: this is pseudonymization, not anonymization. Real amounts,
+    dates and the number of distinct values stay in the file, and a
+    determined attacker could use them (matching against public registries
+    or leaked databases) to re-identify records. We programmatically
+    eliminate accidental leakage of direct identifiers; we do not promise
+    full anonymity.
+  </div>
+
+  <div class="disclaimer">
+    Excel formulas are read as their current values, not as formulas.
+    After <code>restore</code> you get static numbers rather than a
+    recalculating workbook — if the formulas matter for your later work,
+    keep the original file separately.
+  </div>
+
+  <div id="status" class="status loading">Loading the Python engine…</div>
+  <progress id="loadProgress" class="load-progress"></progress>
+
+  <div id="log">Initializing…</div>
+
+  <p>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv,.tsv" multiple disabled>
+  </p>
+  <div id="preview"></div>
+
+  <div id="config" hidden>
+    <h2>Column mapping</h2>
+    <p class="todo">
+      Tick the columns to mask and name the entity each one belongs to
+      (for example <code>customer</code>). Columns ticked but left without
+      an entity name are skipped — they are listed in the log.
+    </p>
+    <button id="buildConfigBtn">Build config</button>
+    <pre id="configOutput"></pre>
+    <a id="configDownload" download="anon-config.json" hidden>Download config</a>
+  </div>
+
+  <div id="links" hidden>
+    <h2>Links across files</h2>
+    <p class="todo">
+      Looks for matches by entity name and by value overlap (95% threshold)
+      among the columns you ticked for masking. A confirmed link assigns
+      the same entity to both columns, so one value gets one token
+      everywhere.
+    </p>
+    <button id="findLinksBtn">Find links</button>
+    <div id="linksOutput"></div>
+  </div>
+
+  <div id="mapping" hidden>
+    <h2>Dictionary</h2>
+    <div class="warning">
+      <code>mapping.KEEP-PRIVATE.json</code> is the key. Never share it and
+      never put it in the same archive as the masked files: anyone holding
+      the dictionary can restore the real data. Lose it and the next run
+      will produce different tokens.
+    </div>
+    <p class="todo">
+      Have a dictionary from a previous run? Load it here — new values are
+      added to it as new tokens and existing ones stay unchanged.
+      <input type="file" id="existingMappingInput" accept=".json">
+    </p>
+    <button id="buildMappingBtn">Build dictionary</button>
+    <pre id="mappingOutput"></pre>
+    <a id="mappingDownload" download="mapping.KEEP-PRIVATE.json" hidden>Download dictionary (mapping.KEEP-PRIVATE.json)</a>
+  </div>
+
+  <div id="masking" hidden>
+    <h2>Masking</h2>
+    <p class="todo">
+      Requires a config and a dictionary from the steps above. Files are
+      re-read from disk and processed one at a time. Once every file is
+      done and the report is built (button below), a single download
+      appears — <code>masked.zip</code>, containing the files and
+      <code>report.html</code>.
+    </p>
+    <button id="maskBtn">Mask files</button>
+    <progress id="maskProgress" class="mask-progress" value="0" max="1" hidden></progress>
+    <div id="maskOutput"></div>
+    <button id="buildReportBtn">Build report</button>
+    <div id="reportOutput"></div>
+    <p>
+      <a id="maskedZipDownload" download="masked.zip" hidden>Download masked.zip</a>
+    </p>
+  </div>
+
+  <div id="restore">
+    <h2>Restore</h2>
+    <p class="todo">
+      A standalone flow — it needs nothing from the steps above. Load your
+      dictionary (<code>mapping.KEEP-PRIVATE.json</code>) and the file(s)
+      whose real values you want back. It searches for tokens rather than
+      columns, so it works on <code>.xlsx</code> as well as on text formats
+      (<code>.csv</code>, <code>.md</code>, <code>.txt</code>,
+      <code>.json</code>, <code>.sql</code>).
+    </p>
+    <p>
+      Dictionary: <input type="file" id="restoreMappingInput" accept=".json" disabled><br>
+      Files: <input type="file" id="restoreFilesInput" accept=".xlsx,.xls,.csv,.tsv,.md,.txt,.json,.sql" multiple disabled>
+    </p>
+    <button id="restoreBtn" disabled>Restore</button>
+    <div id="restoreOutput"></div>
+  </div>
+
+  <!-- Vendored (not a CDN, design.md §9.1), UMD build -- a classic script,
+       not a module, so it sets the global window.JSZip before main.js runs.
+       Version 3.10.1; the file's sha256 and the package's sha1 were checked
+       against the npm registry when it was added (same approach as the
+       .whl files). -->
+  <script src="vendor/jszip/jszip-3.10.1.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
