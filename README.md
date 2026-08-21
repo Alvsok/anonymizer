@@ -127,6 +127,12 @@ where the guarantees are.
   JSZip. Versions are pinned; updating means deliberately replacing files.
 - `_headers` — the worker's CSP when served from Cloudflare Pages.
 
+## Feedback
+
+Suggestions and bug reports are welcome —
+[open an issue](https://github.com/Alvsok/anonymizer/issues/new) or write
+to [alsok@alsok.org](mailto:alsok@alsok.org).
+
 ## License
 
 Apache-2.0, see `LICENSE`.
