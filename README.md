@@ -13,11 +13,10 @@ The key maps those tokens back to the real values. Undoing the masking
 with it is not part of this page — that moves to a page of its own.
 
 **This is pseudonymization, not anonymization.** Amounts, dates and the
-number of distinct values remain real, so a determined attacker could use
-them (matching against public registries or leaked databases) to
-re-identify records. The tool programmatically eliminates accidental
-leakage of direct identifiers; it does not give you, and does not promise,
-full anonymity.
+number of distinct values stay real — the analyst needs them, and anyone
+who already holds the same records from another source could match on
+those numbers and undo the masking. It is a way to send a working file to
+an analyst without sending the names, not a way to publish data openly.
 
 ## Why tokens instead of realistic fakes
 

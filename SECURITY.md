@@ -43,9 +43,11 @@ concrete:
 deliberate — the analyst has to be able to work with the file.
 
 - **Amounts, dates and row counts stay real.** So does the number of
-  distinct values in every column. Someone determined enough can match
-  those against a public registry or a leaked database and re-identify
-  records. That is a property of the design, not a bug in it.
+  distinct values in every column. Someone who already holds the same
+  records from another source — a public registry, a leaked database —
+  can match on those numbers and re-identify them. That is a property of
+  the design, not a bug in it: the analyst has to be able to work with the
+  file.
 - **The key is not encrypted.** It is an ordinary file that you keep. Its
   extension is `.secretmap` rather than `.json` so it does not open on a
   double click in Excel and is harder to attach to an email by reflex —

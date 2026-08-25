@@ -51,20 +51,13 @@
   <div class="disclaimer">
     We never receive names, addresses, emails, phone numbers, counterparty
     names or account numbers — we hold no lookup dictionary, we do not ask
-    for one and we do not accept one. But we do not claim your data is
-    anonymous: this is pseudonymization, not anonymization. Real amounts,
-    dates and the number of distinct values stay in the file, and a
-    determined attacker could use them (matching against public registries
-    or leaked databases) to re-identify records. We programmatically
-    eliminate accidental leakage of direct identifiers; we do not promise
-    full anonymity.
-  </div>
-
-  <div class="disclaimer">
-    Excel formulas are read as their current values, not as formulas.
-    After <code>restore</code> you get static numbers rather than a
-    recalculating workbook — if the formulas matter for your later work,
-    keep the original file separately.
+    for one and we do not accept one. Names become tokens; amounts and
+    dates are left exactly as they are, because the analyst has to be able
+    to work with them. That makes this pseudonymization rather than
+    anonymization: someone who already holds the same records from another
+    source could match on those numbers and undo it. For handing a working
+    file to an analyst without handing over the names, that is the trade
+    you want.
   </div>
 
   <div id="status" class="status loading">Loading the Python engine…</div>
@@ -102,6 +95,13 @@
     <p>
       <a id="mappingDownload" download="mapping.KEEP-PRIVATE.secretmap" hidden>Download the key — keep this one</a>
     </p>
+  </div>
+
+  <div class="disclaimer">
+    Excel formulas are read as their current values, not as formulas.
+    After <code>restore</code> you get static numbers rather than a
+    recalculating workbook — if the formulas matter for your later work,
+    keep the original file separately.
   </div>
 
   <footer class="site-footer">
